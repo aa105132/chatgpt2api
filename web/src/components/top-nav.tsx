@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { Github } from "lucide-react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import webConfig from "@/constants/common-env";
-import { clearStoredAuthKey } from "@/store/auth";
+import { clearStoredAuthKey, getStoredAuthKey } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -17,9 +18,27 @@ const navItems = [
 export function TopNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const [hasAuthKey, setHasAuthKey] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncAuthState = async () => {
+      const authKey = await getStoredAuthKey();
+      if (!cancelled) {
+        setHasAuthKey(Boolean(authKey));
+      }
+    };
+
+    void syncAuthState();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
 
   const handleLogout = async () => {
     await clearStoredAuthKey();
+    setHasAuthKey(false);
     router.replace("/login");
   };
 
@@ -70,13 +89,19 @@ export function TopNav() {
           <span className="rounded-md bg-stone-100 px-2 py-1 text-[11px] font-medium text-stone-500">
             v{webConfig.appVersion}
           </span>
-          <button
-            type="button"
-            className="py-2 text-sm text-stone-400 transition hover:text-stone-700"
-            onClick={() => void handleLogout()}
-          >
-            退出
-          </button>
+          {hasAuthKey ? (
+            <button
+              type="button"
+              className="py-2 text-sm text-stone-400 transition hover:text-stone-700"
+              onClick={() => void handleLogout()}
+            >
+              退出
+            </button>
+          ) : (
+            <Link href="/login" className="py-2 text-sm text-stone-400 transition hover:text-stone-700">
+              管理登录
+            </Link>
+          )}
         </div>
       </div>
     </header>

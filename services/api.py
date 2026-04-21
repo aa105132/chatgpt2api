@@ -1,19 +1,24 @@
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Event, Thread
 
-from fastapi import APIRouter, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from services.account_service import account_service
 from services.chatgpt_service import ChatGPTService
 from services.config import config
 from services.cpa_service import cpa_config, cpa_import_service, list_remote_files
+from services.management_service import (
+    build_download_payload_for_name,
+    list_auth_files,
+)
 
 from services.image_service import ImageGenerationError
 from services.version import get_app_version
@@ -121,6 +126,19 @@ def require_auth_key(authorization: str | None) -> None:
         raise HTTPException(status_code=401, detail={"error": "authorization is invalid"})
 
 
+def _cpa_error(status_code: int, message: str) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content={"error": message})
+
+
+def check_management_key(authorization: str | None) -> JSONResponse | None:
+    token = extract_bearer_token(authorization)
+    if not token:
+        return _cpa_error(401, "missing management key")
+    if token != str(config.auth_key or "").strip():
+        return _cpa_error(401, "invalid management key")
+    return None
+
+
 def start_limited_account_watcher(stop_event: Event) -> Thread:
     interval_seconds = config.refresh_account_interval_minute * 60
 
@@ -214,6 +232,10 @@ def create_app() -> FastAPI:
         require_auth_key(authorization)
         return {"items": account_service.list_accounts()}
 
+    @router.get("/api/image/public-status")
+    async def get_public_image_status():
+        return account_service.get_public_image_summary()
+
     @router.post("/api/accounts")
     async def create_accounts(body: AccountCreateRequest, authorization: str | None = Header(default=None)):
         require_auth_key(authorization)
@@ -272,8 +294,7 @@ def create_app() -> FastAPI:
         return {"item": account, "items": account_service.list_accounts()}
 
     @router.post("/v1/images/generations")
-    async def generate_images(body: ImageGenerationRequest, authorization: str | None = Header(default=None)):
-        require_auth_key(authorization)
+    async def generate_images(body: ImageGenerationRequest):
         try:
             return await run_in_threadpool(chatgpt_service.generate_with_pool, body.prompt, body.model, body.n)
         except ImageGenerationError as exc:
@@ -281,13 +302,11 @@ def create_app() -> FastAPI:
 
     @router.post("/v1/images/edits")
     async def edit_images(
-            authorization: str | None = Header(default=None),
             image: UploadFile | None = File(default=None),
             prompt: str = Form(...),
             model: str = Form(default="gpt-image-1"),
             n: int = Form(default=1),
     ):
-        require_auth_key(authorization)
         if n < 1 or n > 4:
             raise HTTPException(status_code=400, detail={"error": "n must be between 1 and 4"})
 
@@ -399,6 +418,42 @@ def create_app() -> FastAPI:
         if pool is None:
             raise HTTPException(status_code=404, detail={"error": "pool not found"})
         return {"import_job": pool.get("import_job")}
+
+    # ── CLIProxyAPI-compatible management endpoints ─────────────────
+    # Mirrors a read-only subset of CPA's /v0/management/auth-files so
+    # peer chatgpt2api / CPA clients can import tokens via the same
+    # contract, see https://help.router-for.me/cn/management/api.
+
+    @router.get("/v0/management/auth-files")
+    async def management_list_auth_files(
+            authorization: str | None = Header(default=None),
+    ):
+        auth_error = check_management_key(authorization)
+        if auth_error is not None:
+            return auth_error
+        files = await run_in_threadpool(list_auth_files)
+        return {"files": files}
+
+    @router.get("/v0/management/auth-files/download")
+    async def management_download_auth_file(
+            name: str = Query(default=""),
+            authorization: str | None = Header(default=None),
+    ):
+        auth_error = check_management_key(authorization)
+        if auth_error is not None:
+            return auth_error
+        cleaned = str(name or "").strip()
+        if not cleaned or not cleaned.lower().endswith(".json"):
+            return _cpa_error(400, "invalid body")
+        payload = await run_in_threadpool(build_download_payload_for_name, cleaned)
+        if payload is None:
+            return _cpa_error(404, "file not found")
+        content = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{cleaned}"'},
+        )
 
     app.include_router(router)
 

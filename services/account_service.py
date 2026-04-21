@@ -288,6 +288,14 @@ class AccountService:
         with self._lock:
             return self._public_items(self._accounts)
 
+    def get_public_image_summary(self) -> dict[str, int]:
+        accounts = self.list_accounts()
+        available_accounts = [account for account in accounts if self._is_image_account_available(account)]
+        return {
+            "availableQuota": sum(max(0, int(account.get("quota") or 0)) for account in available_accounts),
+            "availableAccountCount": len(available_accounts),
+        }
+
     def list_limited_tokens(self) -> list[str]:
         with self._lock:
             return [

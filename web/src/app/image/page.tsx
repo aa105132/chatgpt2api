@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ImageLightbox } from "@/components/image-lightbox";
-import { editImage, fetchAccounts, generateImage, type Account, type ImageModel } from "@/lib/api";
+import { editImage, fetchImagePublicStatus, generateImage, type ImageModel } from "@/lib/api";
 import { ImageComposer } from "@/app/image/components/image-composer";
 import { ImageResults } from "@/app/image/components/image-results";
 import { ImageSidebar } from "@/app/image/components/image-sidebar";
@@ -43,11 +43,6 @@ function formatConversationTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
-}
-
-function formatAvailableQuota(accounts: Account[]) {
-  const availableAccounts = accounts.filter((account) => account.status !== "禁用");
-  return String(availableAccounts.reduce((sum, account) => sum + Math.max(0, account.quota), 0));
 }
 
 async function normalizeConversationHistory(items: ImageConversation[]) {
@@ -184,8 +179,8 @@ export default function ImagePage() {
 
   const loadQuota = useCallback(async () => {
     try {
-      const data = await fetchAccounts();
-      setAvailableQuota(formatAvailableQuota(data.items));
+      const data = await fetchImagePublicStatus();
+      setAvailableQuota(String(data.availableQuota));
     } catch {
       setAvailableQuota((prev) => (prev === "加载中" ? "—" : prev));
     }

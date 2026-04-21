@@ -48,6 +48,11 @@ type AccountUpdateResponse = {
   items: Account[];
 };
 
+type ImagePublicStatusResponse = {
+  availableQuota: number;
+  availableAccountCount: number;
+};
+
 export async function login(authKey: string) {
   const normalizedAuthKey = String(authKey || "").trim();
   return httpRequest<{ ok: boolean }>("/auth/login", {
@@ -62,6 +67,12 @@ export async function login(authKey: string) {
 
 export async function fetchAccounts() {
   return httpRequest<AccountListResponse>("/api/accounts");
+}
+
+export async function fetchImagePublicStatus() {
+  return httpRequest<ImagePublicStatusResponse>("/api/image/public-status", {
+    redirectOnUnauthorized: false,
+  });
 }
 
 export async function createAccounts(tokens: string[]) {

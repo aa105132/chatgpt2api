@@ -68,6 +68,46 @@ POST /v1/responses
 }
 ```
 
+### CPA 兼容管理接口
+
+本项目对外暴露一套与 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 管理 API 只读子集兼容的端点，便于其他 chatgpt2api / CPA 客户端按统一契约远程导入凭证。鉴权头与现有接口一致：`Authorization: Bearer <auth-key>`（即 CPA 语义下的 `MANAGEMENT_KEY`）。
+
+列出本实例账号池：
+
+```http
+GET /v0/management/auth-files
+```
+
+响应：
+
+```json
+{
+  "files": [
+    {
+      "id": "1b2c3d4e5f607182",
+      "name": "chatgpt-1b2c3d4e5f607182.json",
+      "provider": "chatgpt",
+      "account_type": "chatgpt",
+      "label": "Plus",
+      "status": "ready",
+      "disabled": false,
+      "unavailable": false,
+      "runtime_only": false,
+      "source": "file",
+      "email": "foo@example.com"
+    }
+  ]
+}
+```
+
+下载单个凭证（只返回 `access_token` 等必要元数据，不含 refresh_token）：
+
+```http
+GET /v0/management/auth-files/download?name=chatgpt-<id>.json
+```
+
+响应为标准 JSON，`access_token` 字段可直接被 CPA 风格客户端 `fetch_remote_access_token` 读取；对端可 `curl -OJ` 按 `Content-Disposition` 保存为 `.json` 文件。
+
 ## 部署
 
 已发布镜像支持 `linux/amd64` 与 `linux/arm64`，在 x86 服务器和 Apple Silicon / ARM Linux 设备上都会自动拉取匹配架构的版本。
